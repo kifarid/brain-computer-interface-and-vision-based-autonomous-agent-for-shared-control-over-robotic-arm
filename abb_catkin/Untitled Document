@@ -1,0 +1,7 @@
+
+
+moveit
+[ WARN] [1546959728.176842382, 186.516000000]: goalConnectCallback: Trying to add [/gazebo] to goalSubscribers, but it is already in the goalSubscribers list
+[ WARN] [1546959728.176949006, 186.516000000]: cancelConnectCallback: Trying to add [/gazebo] to cancelSubscribers, but it is already in the cancelSubscribers list
+
+

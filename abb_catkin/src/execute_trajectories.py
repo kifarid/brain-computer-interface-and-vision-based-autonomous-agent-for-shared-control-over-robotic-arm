@@ -17,7 +17,7 @@ class ExecTrajService(object):
         
         self.robot = moveit_commander.RobotCommander()
         self.scene = moveit_commander.PlanningSceneInterface()    
-        self.group = moveit_commander.MoveGroupCommander("arm")
+        self.group = moveit_commander.MoveGroupCommander("manipulator")
         display_trajectory_publisher = rospy.Publisher('/move_group/display_planned_path', moveit_msgs.msg.DisplayTrajectory)
 
         self.ee_traj_srv = rospy.Service('/ee_traj_srv', EeTraj , self.ee_traj_callback)
@@ -45,6 +45,7 @@ class ExecTrajService(object):
     def joint_traj_callback(self, request):
         
         self.group_variable_values = self.group.get_current_joint_values()
+	#rospy.spin()
         print ("Group Vars:")
         print (self.group_variable_values)
         print ("Point:")
@@ -73,6 +74,7 @@ class ExecTrajService(object):
     def ee_pose_callback(self, request):
         
         gripper_pose = self.group.get_current_pose()
+        print (gripper_pose)
         
         gripper_pose_res = EePoseResponse()
         gripper_pose_res = gripper_pose.pose
@@ -81,7 +83,8 @@ class ExecTrajService(object):
         
     def ee_rpy_callback(self, request):
         
-        gripper_rpy = self.group.get_current_rpy()
+        gripper_rpy = self.group.get_current_rpy( )# [0.0] *3 
+        print (gripper_rpy)
         gripper_rpy_res = EeRpyResponse()
         gripper_rpy_res.r = gripper_rpy[0]
         gripper_rpy_res.y = gripper_rpy[1]
