@@ -1,12 +1,16 @@
 ##! /usr/bin/env python
 import numpy
 import rospy
+from tf2.transformations import quaternion_from_euler
+from gazebo_msgs.srv import GetModelState, GetWorldProperties
 from openai_ros import robot_gazebo_env_goal
 from std_msgs.msg import Float64
 from sensor_msgs.msg import JointState, Image, PointCloud2
 from nav_msgs.msg import Odometry
+from moveit_msgs.srv import GetStateValidity, GetStateValidityRequest, GetPositionIK, GetPositionIKRequest
 from abb_catkin.srv import EePose, EePoseRequest, EeRpy, EeRpyRequest, EeTraj, EeTrajRequest, JointTraj, JointTrajRequest
-
+from control_msgs.msg import GripperCommandAction, GripperCommandGoal
+import actionlib
 
 class Abbenv(robot_gazebo_env_goal.RobotGazeboEnv):
     """Superclass for all Fetch environments.
@@ -37,7 +41,7 @@ class Abbenv(robot_gazebo_env_goal.RobotGazeboEnv):
         self.joint_states_sub = rospy.Subscriber(JOINT_STATES_SUBSCRIBER, JointState, self.joints_callback)
         self.joints = JointState()
         
-#to ensure topics of camera are initialised
+        #to ensure topics of camera are initialised
 
         image_raw_topic = '/rgb/image_raw'
 
@@ -54,16 +58,27 @@ class Abbenv(robot_gazebo_env_goal.RobotGazeboEnv):
         self.depth_points_sub = rospy.Subscriber(depth_points_topic, PointCloud2, self.depth_points_callback)
         self.depth_points = PointCloud2()
 
+        #intializing important clients
+
+        self.model_state_client = rospy.ServiceProxy('/get_model_state',GetModelState)
+        self.world_properties_client = rospy.ServiceProxy('/get_world_properties', GetWorldProperties)
         self.ee_traj_client = rospy.ServiceProxy('/ee_traj_srv', EeTraj)
         self.joint_traj_client = rospy.ServiceProxy('/joint_traj_srv', JointTraj)
         self.ee_pose_client = rospy.ServiceProxy('/ee_pose_srv', EePose)
         self.ee_rpy_client = rospy.ServiceProxy('/ee_rpy_srv', EeRpy)
-        
+        self.joint_state_valid_client = rospy.ServiceProxy('/check_state_validity', GetStateValidity)
+        self.joint_state_from_pose_client = rospy.ServiceProxy('/GetPositionIK', GetPositionIK)
+
+        #initializing action server for gripper passant add action clinet
+        self.gripper_client = actionlib.SimpleActionClient('/gripper_controller/gripper_cmd', GripperCommandAction)
+
+
+
         # Variables that we give through the constructor.
 
         #self.controllers_list = []
-        self.controllers_list = ["joint_state_controller","arm_controller"]
-	#self.controllers_list = ["joint_state_controller"]
+        self.controllers_list = ["joint_state_controller", "arm_controller"]
+        #self.controllers_list = ["joint_state_controller"]
 
         self.robot_name_space = ""
         
@@ -95,8 +110,13 @@ class Abbenv(robot_gazebo_env_goal.RobotGazeboEnv):
         #self._check_image_raw_ready() 
         #self._check_depth_raw_ready()
         #self._check_depth_points_ready()
+        #self.check_gripper_ready()
         rospy.logdebug("ALL SENSORS READY")
 
+    def check_gripper_ready(self):
+        rospy.logdebug("Waiting for gripper action server to be ready")
+        self.gripper_client.wait_for_server()
+        rospy.logdebug("gripper action server is READY")
 
     def _check_joint_states_ready(self):
         self.joints = None
@@ -167,17 +187,24 @@ class Abbenv(robot_gazebo_env_goal.RobotGazeboEnv):
         Wraps an action vector of joint angles into a JointTrajectory message.
         The velocities, accelerations, and effort do not control the arm motion
         """
-        # Set up a trajectory message to publish.
+        # Set up a trajectory message to publish. for the end effector
         
         ee_target = EeTrajRequest()
-        ee_target.pose.orientation.w = 1.0
+        ee_target.pose.orientation.w = quaternion_from_euler([0, 1.571, action[3]])
         ee_target.pose.position.x = action[0]
         ee_target.pose.position.y = action[1]
         ee_target.pose.position.z = action[2]
         result = self.ee_traj_client(ee_target)
-        
+
+        goal = GripperCommandGoal()
+        goal.command.position = 0.8 if action[4:5] == [1, 0] else goal.command.position = 0
+        goal.command.max_effort = -1.0  #THIS NEEDS TO BE CHANGEDDDDDD
+        self.gripper_clien
         return True
-        
+        t.send_goal(goal)
+
+        self.gripper_client.wait_for_result()
+
     def set_trajectory_joints(self, initial_qpos):
         """
         Helper function.
@@ -202,19 +229,65 @@ class Abbenv(robot_gazebo_env_goal.RobotGazeboEnv):
         return result
    
     def get_ee_pose(self):
-        
+
+        #get the ee pose
         gripper_pose_req = EePoseRequest()
         gripper_pose = self.ee_pose_client(gripper_pose_req)
-        
-        return gripper_pose
+
+        #get gripper state in addition to state of success in command
+        result = self.gripper_client.get_result()
+        gripper_open = 0 if result.position > 0.0 else gripper_open = 1
+        gripper_state = [gripper_open, result.reached_goal]
+
+        return gripper_pose, gripper_state
         
     def get_ee_rpy(self):
-        
+
         gripper_rpy_req = EeRpyRequest()
         gripper_rpy = self.ee_rpy_client(gripper_rpy_req)
         
         return gripper_rpy
-    
+
+    def get_available_models(self):
+        world_properties = self.world_properties_client()
+        return world_properties.model_names
+
+    def get_model_states(self):
+
+        #getting available model names
+        #changing the data got from the client can help in getting the velocities of the objects also
+        model_names = self.get_available_models()
+
+        self.model_states = {model: self.model_state_client(model).pose.position for model in model_names}
+
+
+    def check_ee_valid_pose(self,action):
+        #checking the validity of the end effector pose
+        #converting to joint state using ik and then getting the validity
+        GPIK_Request =GetPositionIKRequest()
+        GPIK_Request.group_name = GPIK_Request.group_name = 'arm_controller'
+        GPIK_Request.robot_state.joint_state = self.joints
+        GPIK_Request.avoid_collisions = True
+        # this poses is related to the reference frame of gazebo
+        # the pose is set as a radian value between 1.571 and -1.571
+        GPIK_Request.pose_stamped.pose.position.x = action[ 0 ]
+        GPIK_Request.pose_stamped.pose.position.y = action[ 1 ]
+        GPIK_Request.pose_stamped.pose.position.z = action[ 2 ]
+        GPIK_Request.pose_stamped.pose.orientation = quaternion_from_euler([0, 1.571, action[3]])
+        GPIK_Response = self.joint_state_from_pose_client(GPIK_Request)
+        if GPIK_Response.error_code == 1:
+            return True
+        else:
+            return GPIK_Response.error_code
+
+        # GSV_Request = GetStateValidityRequest()
+        # GSV_Request.group_name = GPIK_Request.group_name ='arm_controller'
+        # GSV_Request.robot_state.joint_state.name = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5', 'joint_6' ]
+        # GSV_Request.robot_state.joint_state.position = [ 0, 0, 0, 0, 0, 0 ]
+        # valid = self.joint_state_valid_client(GSV_Request)
+        # return valid
+
+
     # ParticularEnv methods
     # ----------------------------
 
