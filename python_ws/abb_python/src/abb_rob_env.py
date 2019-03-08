@@ -199,11 +199,11 @@ class Abbenv(robot_gazebo_env_goal.RobotGazeboEnv):
         goal = GripperCommandGoal()
         goal.command.position = 0.8 if action[4:5] == [1, 0] else goal.command.position = 0
         goal.command.max_effort = -1.0  #THIS NEEDS TO BE CHANGEDDDDDD
-        self.gripper_clien
-        return True
-        t.send_goal(goal)
+        self.gripper_client.send_goal(goal)
 
         self.gripper_client.wait_for_result()
+
+        return True
 
     def set_trajectory_joints(self, initial_qpos):
         """
