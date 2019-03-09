@@ -14,7 +14,7 @@ register(
     id='ABBReach-v0',
     # entry_point='openai_ros:ABBReachEnv',
     entry_point='abb_python.src.abb_reach:ABBReachEnv',
-    timestep_limit=10,
+    timestep_limit=500,
 )
 
 
@@ -59,9 +59,9 @@ class ABBReachEnv(abb_rob_env.Abbenv, utils.EzPickle):
         self.init_pos = rospy.get_param('/fetch/init_pos')
         self.reward_type = rospy.get_param('/fetch/reward_type')
         """
-        self.n_actions = 4
-        self.has_object = False
-        self.block_gripper = True
+        self.n_actions = 5
+        self.has_object = True
+        self.block_gripper = False
         self.n_substeps = 20
         self.gripper_extra_height = 0.2
         self.target_in_the_air = True
@@ -82,61 +82,61 @@ class ABBReachEnv(abb_rob_env.Abbenv, utils.EzPickle):
     def _set_action(self, action):
 
         # Take action
-        assert action.shape == (4,)
+        assert action.shape == (6,)
         action = action.copy()  # ensure that we don't change the action outside of this scope
-        pos_ctrl, gripper_ctrl = action[ :3 ], action[ 3 ]
-
-        # pos_ctrl *= 0.05  # limit maximum change in position
-        rot_ctrl = [ 1., 0., 1., 0. ]  # fixed rotation of the end effector, expressed as a quaternion
-        gripper_ctrl = np.array([ gripper_ctrl, gripper_ctrl ])
-        assert gripper_ctrl.shape == (2,)
-        if self.block_gripper:
-            gripper_ctrl = np.zeros_like(gripper_ctrl)
-        action = np.concatenate([ pos_ctrl, rot_ctrl, gripper_ctrl ])
-
+        # pos_ctrl, rot_ctrl ,gripper_ctrl = action[ :3 ], action[ 3 ], action[ 4 ]
+        #
+        # # pos_ctrl *= 0.05  # limit maximum change in position
+        # rot_ctrl = [ 1., 0., 1., 0. ]  # fixed rotation of the end effector, expressed as a quaternion
+        # gripper_ctrl = np.array([ gripper_ctrl, gripper_ctrl ])
+        # assert gripper_ctrl.shape == (2,)
+        # if self.block_gripper:
+        #     gripper_ctrl = np.zeros_like(gripper_ctrl)
+        # action = np.concatenate([ pos_ctrl, rot_ctrl, gripper_ctrl ])
+        #
         # Apply action to simulation.
         self.set_trajectory_ee(action)
 
     def _get_obs(self):
 
-        grip_pos = self.get_ee_pose()
-        grip_pos_array = np.array([ grip_pos.pose.position.x, grip_pos.pose.position.y, grip_pos.pose.position.z ])
-        # dt = self.sim.nsubsteps * self.sim.model.opt.timestep #What is this??
-        # grip_velp = self.sim.data.get_site_xvelp('robot0:grip') * dt
-        grip_rpy = self.get_ee_rpy()
-        # print grip_rpy
-        grip_velp = np.array([ grip_rpy.y, grip_rpy.y ])
-        robot_qpos, robot_qvel = self.robot_get_obs(self.joints)
-        if self.has_object:
-            object_pos = self.sim.data.get_site_xpos('object0')
-            # rotations
-            object_rot = rotations.mat2euler(self.sim.data.get_site_xmat('object0'))
-            # velocities
-            object_velp = self.sim.data.get_site_xvelp('object0') * dt
-            object_velr = self.sim.data.get_site_xvelr('object0') * dt
-            # gripper state
-            object_rel_pos = object_pos - grip_pos
-            object_velp -= grip_velp
-        else:
-            object_pos = object_rot = object_velp = object_velr = object_rel_pos = np.zeros(0)
+        ###################################################################################################
+        #getting the image for the current observation the image should be a numpy array constituted
+        #depth 4 and each channel consists of the RGB and D of the image
 
-        gripper_state = robot_qpos[ -2: ]
-        gripper_vel = robot_qvel[ -2: ]  # * dt  # change to a scalar if the gripper is made symmetric
-        """
-        if not self.has_object:
-            achieved_goal = grip_pos_array.copy()
+
+
+
+        ###################################################################################################
+
+        # getting the pose of the end effector the pose mainly consists of the end effector 3D translation
+        # and rotation about the Z axis in addition to an indication of the aperature of the gripper and
+        # command success
+
+        grip_pose, grip_state = self.get_ee_pose()
+        grip_pos_array = np.array([ grip_pose.pose.position.x, grip_pose.pose.position.y, grip_pose.pose.position.z])
+        grip_rpy = self.get_ee_rpy()
+        grip_rot_array = np.array([grip_rpy.z])
+
+        # need to check wether to add success or if the gripper is opened or closed only
+        self.gripper_success_only = True
+
+        if self.gripper_success_only:
+            gripper_state = np.array(grip_state[1]) #is task reached?
         else:
-            achieved_goal = np.squeeze(object_pos.copy())
-        """
+            gripper_state = np.array(grip_state[0]) #is gripper open?
+
+        obs = np.concatenate([ grip_pos_array, grip_rot_array, gripper_state ])
+
+        ###################################################################################################
+        # getting the object poses while training from the simulator and sampling the achieved goals
+
+
+
         achieved_goal = self._sample_achieved_goal(grip_pos_array, object_pos)
 
-        obs = np.concatenate([
-            grip_pos_array, object_pos.ravel(), object_rel_pos.ravel(), gripper_state, object_rot.ravel(),
-            object_velp.ravel(), object_velr.ravel(), gripper_vel,
-        ])
-
+        ###################################################################################################
         return {
-            'observation': obs.copy(),
+            'observation': (image, obs.copy()),
             'achieved_goal': achieved_goal.copy(),
             'desired_goal': self.goal.copy(),
         }
@@ -185,24 +185,25 @@ class ABBReachEnv(abb_rob_env.Abbenv, utils.EzPickle):
         return np.linalg.norm(goal_a - goal_b, axis=-1)
 
     def _sample_goal(self):
-        if self.has_object:
-            goal = self.initial_gripper_xpos[ :3 ] + self.np_random.uniform(-self.target_range, self.target_range,
-                                                                            size=3)
-            goal += self.target_offset
-            goal[ 2 ] = self.height_offset
-            if self.target_in_the_air and self.np_random.uniform() < 0.5:
-                goal[ 2 ] += self.np_random.uniform(0, 0.45)
-        else:
-            goal = self.initial_gripper_xpos[ :3 ] + self.np_random.uniform(-0.1, 0.1, size=3)
+        #this function should be modified to be one of the objects pose in addition to any 3d position in the
+        # vicinity with placing position 50% of the times in air
+
+        #need to get target position range
+
+        goal = self.initial_gripper_xpos[ :3 ] + self.np_random.uniform(-self.target_range, self.target_range,
+                                                                         size=3)
+        goal[ 2 ] = self.height_offset
+        if self.target_in_the_air and self.np_random.uniform() < 0.5:
+            goal[ 2 ] += self.np_random.uniform(0, 0.45)
 
         # return goal.copy()
         return goal
 
     def _sample_achieved_goal(self, grip_pos_array, object_pos):
-        if not self.has_object:
-            achieved_goal = grip_pos_array.copy()
-        else:
-            achieved_goal = np.squeeze(object_pos.copy())
+
+
+        # this should sample the changed position of any object
+        achieved_goal = np.squeeze(object_pos.copy())
 
         # return achieved_goal.copy()
         return achieved_goal
@@ -217,54 +218,24 @@ class ABBReachEnv(abb_rob_env.Abbenv, utils.EzPickle):
         # called by intializing of task env
         self.gazebo.unpauseSim()
         self.set_trajectory_joints(initial_qpos)
-        # self.execute_trajectory()
-        # utils.reset_mocap_welds(self.sim)
-        # self.sim.forward()
+
         time.sleep(5)
         # Move end effector into position.
 
         gripper_target = np.array(
             [ 0.498, 0.005, 0.431 + self.gripper_extra_height ])  # + self.sim.data.get_site_xpos('robot0:grip')
         gripper_rotation = np.array([ 1., 0., 1., 0. ])
-        # self.sim.data.set_mocap_pos('robot0:mocap', gripper_target)
-        # self.sim.data.set_mocap_quat('robot0:mocap', gripper_rotation)
         action = np.concatenate([ gripper_target, gripper_rotation ])
         self.set_trajectory_ee(action)
-        time.sleep(10)
-        # self.execute_trajectory()
-        # for _ in range(10):
-        # self.sim.step()
-        # self.step()
+        time.sleep(5)
 
-        # Extract information for sampling goals.
-        # self.initial_gripper_xpos = self.sim.data.get_site_xpos('robot0:grip').copy()
         gripper_pos = self.get_ee_pose()
         gripper_pose_array = np.array(
             [ gripper_pos.pose.position.x, gripper_pos.pose.position.y, gripper_pos.pose.position.z ])
         self.initial_gripper_xpos = gripper_pose_array.copy()
         if self.has_object:
+            #this needs to be adjusted to be the centeroid height of the object
             self.height_offset = self.sim.data.get_site_xpos('object0')[ 2 ]
 
         self.goal = self._sample_goal()
         self._get_obs()
-
-
-    def robot_get_obs(self, data):
-
-        """
-        Returns all joint positions and velocities associated with a robot.
-        """
-
-        if data.position is not None and data.name:
-            # names = [n for n in data.name if n.startswith('robot')]
-            names = [ n for n in data.name ]
-            i = 0
-            r = 0
-            for name in names:
-                r += 1
-
-            return (
-                np.array([ data.position[ i ] for i in range(r) ]),
-                np.array([ data.velocity[ i ] for i in range(r) ]),
-            )
-        return np.zeros(0), np.zeros(0)
