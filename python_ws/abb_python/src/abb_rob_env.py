@@ -296,6 +296,12 @@ class Abbenv(robot_gazebo_env_goal.RobotGazeboEnv):
         of an episode.
         """
         raise NotImplementedError()
+        #This should include intilization of different objects in the env getting their poses using
+        #the get_model_states
+        # publish topics l bt3mel randomize
+        # a5od l position bta3 l objects b3d l randomize
+
+
 
     def _compute_reward(self, observations, done):
         """Calculates the reward to give based on the observations given.

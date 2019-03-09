@@ -185,15 +185,16 @@ class ABBReachEnv(abb_rob_env.Abbenv, utils.EzPickle):
         return np.linalg.norm(goal_a - goal_b, axis=-1)
 
     def _sample_goal(self):
-        if self.has_object:
-            goal = self.initial_gripper_xpos[ :3 ] + self.np_random.uniform(-self.target_range, self.target_range,
-                                                                            size=3)
-            goal += self.target_offset
-            goal[ 2 ] = self.height_offset
-            if self.target_in_the_air and self.np_random.uniform() < 0.5:
-                goal[ 2 ] += self.np_random.uniform(0, 0.45)
-        else:
-            goal = self.initial_gripper_xpos[ :3 ] + self.np_random.uniform(-0.1, 0.1, size=3)
+        #this function should be modified to be one of the objects pose in addition to any 3d position in the
+        # vicinity with placing position 50% of the times in air
+
+        #need to get target position range
+
+        goal = self.initial_gripper_xpos[ :3 ] + self.np_random.uniform(-self.target_range, self.target_range,
+                                                                         size=3)
+        goal[ 2 ] = self.height_offset
+        if self.target_in_the_air and self.np_random.uniform() < 0.5:
+            goal[ 2 ] += self.np_random.uniform(0, 0.45)
 
         # return goal.copy()
         return goal
@@ -201,6 +202,7 @@ class ABBReachEnv(abb_rob_env.Abbenv, utils.EzPickle):
     def _sample_achieved_goal(self, grip_pos_array, object_pos):
 
 
+        # this should sample the changed position of any object
         achieved_goal = np.squeeze(object_pos.copy())
 
         # return achieved_goal.copy()
@@ -225,13 +227,14 @@ class ABBReachEnv(abb_rob_env.Abbenv, utils.EzPickle):
         gripper_rotation = np.array([ 1., 0., 1., 0. ])
         action = np.concatenate([ gripper_target, gripper_rotation ])
         self.set_trajectory_ee(action)
-        time.sleep(10)
+        time.sleep(5)
 
         gripper_pos = self.get_ee_pose()
         gripper_pose_array = np.array(
             [ gripper_pos.pose.position.x, gripper_pos.pose.position.y, gripper_pos.pose.position.z ])
         self.initial_gripper_xpos = gripper_pose_array.copy()
         if self.has_object:
+            #this needs to be adjusted to be the centeroid height of the object
             self.height_offset = self.sim.data.get_site_xpos('object0')[ 2 ]
 
         self.goal = self._sample_goal()
