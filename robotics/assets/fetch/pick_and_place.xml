@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mujoco>
+	<compiler angle="radian" coordinate="local" meshdir="../stls/fetch" texturedir="../textures"></compiler>
+	<option timestep="0.002">
+		<flag warmstart="enable"></flag>
+	</option>
+        <asset>
+		<texture name="texplane" type="2d" builtin="checker" rgb1=".2 .3 .4" rgb2=".1 0.15 0.2" width="100" height="100"/>  
+		<material name='MatPlane' reflectance='0.5' texture="texplane" texrepeat="1 1" texuniform="true"/>
+		<texture name="texobj" type="cube" file="marble.png"/>
+		<material name="geomObj" texture="texobj" specular="0.95" shininess=".03" rgba=".8 .8 .8 1"/>
+        </asset>
+	<include file="shared.xml"></include>
+	<default>
+    	<default class="obj">
+		<geom solref="0.008 1" solimp="0.93 0.97 0.001" margin="0.001" user="0" type="mesh" rgba="1 1 1 1" material="geomMat" condim="4"/>
+	</default>
+        </default>
+
+	<worldbody>
+		<!--light directional="false" cutoff="35" exponent="10" diffuse=".7 .7 .7" pos="1 -0.2 2.5" dir="-0.4 1 -1.5" specular=".3 .3 .3"/-->
+		<geom name="floor0" pos="0.8 0.75 0" size="10 10 0.125" type="plane" condim="3" material="floor_mat"></geom>
+		<body name="floor0" pos="0.8 0.75 0">
+			<site name="target0" pos="0 0 0.5" size="0.02 0.02 0.02" rgba="1 0 0 1" type="sphere"></site>
+		</body>
+
+		<include file="robot.xml"></include>
+		
+		<body pos="1.45 0.75 0.2" name="table0">
+			<geom size="0.45 0.45 0.2" type="box" mass="2000" material="table_mat"></geom>
+		</body>
+		<body name="object0" pos="0.025 0.025 0.025">
+			<joint name="object0:joint" type="free" damping="0.01"></joint>
+			<geom size="0.025 0.04 0.025" type="box" condim="3" name="object0" rgba="0 0 0 1" material="block_mat" mass="2"></geom>
+			<site name="object0" pos="0 0 0" size="0.02 0.02 0.02" rgba="1 0 0 1" type="sphere"></site>
+		</body>
+		<body name="object1" pos="0.025 0.025 0.025">
+			<joint name="object1:joint" type="free" damping="0.01"></joint>
+			<geom size="0.045 0.01 0.025" type="box" condim="3" name="object1" rgba="0 1 0 1"  material="geomObj" mass="2"></geom>
+			<site name="object1" pos="0 0 0" size="0.01 0.01 0.01" rgba="1 1 0 1" type="sphere"></site>
+		</body>
+		<body name="object2" pos="0.025 0.025 0.025">
+			<joint name="object2:joint" type="free" damping="0.01"></joint>
+			<geom size="0.025 0.025 0.025" type="box" condim="3" name="object2" rgba="0.5 0.5 1 1" material="geomObj" mass="2"></geom>
+			<site name="object2" pos="0 0 0" size="0.02 0.02 0.02" rgba="1 0 1 1" type="sphere"></site>
+		</body>
+		<body name="object3" pos="0.025 0.025 0.025">
+			<joint name="object3:joint" type="free" damping="0.01"></joint>
+			<geom size="0.025 0.025" type="cylinder" condim="3" name="object3" rgba="0.5 0.5 0.5 1" material="geomObj" mass="2"></geom>
+			<site name="object3" pos="0 0 0" size="0.02 0.02 0.02" rgba="1 0.5 0.5 1" type="sphere"></site>
+		</body>
+		<body name="object4" pos="0.025 0.025 0.025">
+			<joint name="object4:joint" type="free" damping="0.01"></joint>
+			<geom size="0.025 0.025" type="cylinder" condim="3" name="object4" rgba="1 0 0 1" material="block_mat" mass="2"></geom>
+			<site name="object4" pos="0 0 0" size="0.02 0.02 0.02" rgba="1 0.5 1 1" type="sphere"></site>
+		</body>
+
+		<light directional="true" ambient="0.2 0.2 0.2" diffuse="0.8 0.8 0.8" specular="0.3 0.3 0.3" castshadow="false" pos="0 0 4" dir="0 0 -1" name="light0"></light>
+	</worldbody>
+
+	<actuator>
+		<position ctrllimited="true" ctrlrange="0 0.2" joint="robot0:l_gripper_finger_joint" kp="30000" name="robot0:l_gripper_finger_joint" user="1"></position>
+		<position ctrllimited="true" ctrlrange="0 0.2" joint="robot0:r_gripper_finger_joint" kp="30000" name="robot0:r_gripper_finger_joint" user="1"></position>
+	</actuator>
+</mujoco>
